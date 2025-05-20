@@ -24,6 +24,7 @@ EXPOSE 16000
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV MODEL_NAME=all-MiniLM-L6-v2
+ENV EQUIVALENCE_MODEL_NAME=ynie/roberta-large-snli_mnli_fever_anli_R1_R2_R3-nli
 
 # Command to run the application with Gunicorn
 CMD ["./start.sh"]

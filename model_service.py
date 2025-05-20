@@ -58,7 +58,8 @@ class ModelService:
         
         try:
             # Load the model
-            self.model = SentenceTransformer(self.model_name, cache_folder=self.cache_folder)
+            # self.model = SentenceTransformer(self.model_name, cache_folder=self.cache_folder)
+            self.model = None
             load_time = time.time() - start_time
             logger.info(f"Model loaded successfully in {load_time:.2f} seconds")
             
