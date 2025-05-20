@@ -24,7 +24,7 @@ class EquivalenceModelService:
     
     @classmethod
     def get_instance(cls, model_name: str, cache_dir: str, device: torch.device) -> 'EquivalenceModelService':
-        """Get or create the singleton instance of EquivalenceModelService."""
+        """Returns the singleton instance of EquivalenceModelService."""
         if cls._instance is None:
             cls._instance = cls(model_name, cache_dir, device)
         return cls._instance
@@ -48,7 +48,7 @@ class EquivalenceModelService:
         self._initialize_model()
     
     def _initialize_model(self):
-        """Load the model and tokenizer."""
+        """Load and initialize the model and tokenizer."""
         try:
             start_time = time.time()
             logger.info(f"Loading {self.model_name} tokenizer from {self.cache_dir}")
@@ -99,20 +99,7 @@ class EquivalenceModelService:
             return False
     
     def classify_texts(self, premise: str, hypothesis: str) -> Dict[str, Any]:
-        """Classify the semantic relationship between two texts.
-        
-        Args:
-            premise: The first text
-            hypothesis: The second text to compare with the premise
-            
-        Returns:
-            A dictionary containing:
-                - entailment_score: Probability that hypothesis follows from premise
-                - contradiction_score: Probability that hypothesis contradicts premise
-                - neutral_score: Probability that hypothesis is neutral to premise
-                - predicted_label: The predicted relationship
-                - is_equivalent: Boolean indicating if texts are semantically equivalent
-        """
+        """Classify the semantic relationship between two texts."""
         if not self.initialized:
             raise RuntimeError("Model not initialized. Cannot perform classification.")
         
@@ -163,7 +150,20 @@ class EquivalenceModelService:
             raise
     
     def shutdown(self):
-        """Clean up resources."""
+        """Initiates the shutdown process for the model service.
+        
+        This method performs several key steps to ensure a clean shutdown of the model
+        service: - Logs an informational message indicating the start of the shutdown
+        process. - Checks if there is an active model instance and, if so, proceeds
+        with additional cleanup. - If the model is using CUDA and
+        `torch.cuda.empty_cache` is available, it forces the cleanup of CUDA memory. -
+        Logs a final informational message once the shutdown process is complete. -
+        Catches and logs any exceptions that occur during the shutdown process to
+        prevent unhandled errors.
+        
+        Args:
+            self: The instance of the class managing the model service.
+        """
         try:
             logger.info("Shutting down model service")
             if self.model is not None:
