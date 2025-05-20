@@ -6,6 +6,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create models directory for caching
+RUN mkdir -p /app/models
+
 # Copy the rest of the application
 COPY . .
 

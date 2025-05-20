@@ -8,6 +8,7 @@ A FastAPI server that compares the semantic similarity between two strings using
 - Uses sentence-transformers model (all-MiniLM-L6-v2 by default)
 - Automatically utilizes GPU if available
 - Simple REST API with JSON request/response
+- Model caching to avoid repeated downloads on server restart
 
 ## Installation
 
@@ -107,6 +108,18 @@ You can change the model in two ways:
    ```
 
 Note that more accurate models like "all-mpnet-base-v2" require more computational resources but provide better similarity results.
+
+## Performance Considerations
+
+### Model Caching
+
+The application is configured to cache downloaded models in the `models/` directory. This means:
+
+1. The model will only be downloaded once, even if you restart the server multiple times
+2. Subsequent server startups will be much faster
+3. When using Docker, the model cache is stored in a named volume for persistence
+
+This is especially important for larger models like "all-mpnet-base-v2" which can be several hundred MB in size.
 
 ## License
 

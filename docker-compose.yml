@@ -7,6 +7,7 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+      - model-cache:/app/models  # Persist model cache between container restarts
     restart: unless-stopped
     environment:
       - MODEL_NAME=all-MiniLM-L6-v2  # Can be changed to all-mpnet-base-v2 for higher accuracy
@@ -18,3 +19,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]  # This enables GPU if available
+
+volumes:
+  model-cache:  # Named volume for model persistence

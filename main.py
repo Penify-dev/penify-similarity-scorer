@@ -3,13 +3,19 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer, util
 import torch
 import os
+import pathlib
+
+# Set up model cache directory
+models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+os.makedirs(models_dir, exist_ok=True)
 
 # Get model name from environment variable or use default
-model_name = os.environ.get("MODEL_NAME", "all-MiniLM-L6-v2")
-print(f"Loading model: {model_name}")
+model_name = os.environ.get("MODEL_NAME", "all-mpnet-base-v2")
+print(f"Loading model: {model_name} from cache directory: {models_dir}")
 
-# Load model (GPU will be used automatically if available)
-model = SentenceTransformer(model_name)
+# Load model with caching in the models directory
+# GPU will be used automatically if available
+model = SentenceTransformer(model_name, cache_folder=models_dir)
 
 # FastAPI app
 app = FastAPI()

@@ -21,6 +21,9 @@ Thumbs.db
 # Ignore downloaded model files
 *.bin
 *.pt
+models/
+# But keep the models directory itself
+!models/.gitkeep
 
 # Ignore logs
 *.log
