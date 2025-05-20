@@ -14,8 +14,8 @@ export PYTHONMALLOC=malloc  # Use system malloc instead of Python's pymalloc (ca
 export PYTHONDEVMODE=1
 export PYTHONGC="threshold=10,autoscale=5"  # More aggressive GC settings
 
-# Disable auto-restart behavior
-export GUNICORN_CMD_ARGS="--max-requests 0 --worker-tmp-dir /dev/shm"
+# Disable auto-restart behavior and use /tmp for worker tmp directory
+export GUNICORN_CMD_ARGS="--max-requests 0 --worker-tmp-dir /tmp"
 export RELOAD=false
 
 # Log memory usage

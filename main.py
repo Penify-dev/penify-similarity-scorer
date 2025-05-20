@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
 from sentence_transformers import SentenceTransformer, util
 import torch
 import os
@@ -83,6 +84,70 @@ except Exception as e:
     logger.error(f"Failed to initialize model service: {e}")
     raise
 
+# FastAPI lifespan context manager
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: verify model is properly loaded
+    logger.info("Application startup - Verifying model service is properly loaded...")
+    logger.info(f"Worker PID: {os.getpid()}")
+    try:
+        s1 = "Hello world"
+        s2 = "Hi there"
+        
+        # Check model service health
+        health_check_start = time.time()
+        is_healthy = model_service.health_check()
+        health_check_time = time.time() - health_check_start
+        
+        if not is_healthy:
+            logger.error("Model service health check failed")
+        else:    
+            logger.info(f"Model service health check passed in {health_check_time:.4f} seconds")
+            
+            # Test similarity calculation
+            sim_start = time.time()
+            similarity = model_service.calculate_similarity(s1, s2)
+            sim_time = time.time() - sim_start
+            
+            logger.info(f"Model verification successful. Similarity: {similarity:.4f}")
+            logger.info(f"Similarity calculation time: {sim_time:.4f} seconds")
+            
+            # Log memory usage if possible
+            try:
+                import psutil
+                process = psutil.Process(os.getpid())
+                memory_info = process.memory_info()
+                logger.info(f"Worker memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
+            except ImportError:
+                logger.info("psutil not available, memory usage stats skipped")
+                
+    except Exception as e:
+        logger.error(f"Model verification failed: {e}")
+        # We don't want to crash the app, but log the error
+        
+    logger.info("Application startup complete")
+    
+    # Yield control back to FastAPI
+    yield
+    
+    # Shutdown logic
+    logger.info("Application shutdown initiated")
+    
+    # Log memory usage before shutdown
+    try:
+        import psutil
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        logger.info(f"Final memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
+        
+        # Log runtime statistics
+        uptime = time.time() - process.create_time()
+        logger.info(f"Application uptime: {uptime:.2f} seconds ({uptime/60:.2f} minutes)")
+    except:
+        logger.info("Could not log final memory usage")
+        
+    logger.info("Application shutdown complete")
+
 # FastAPI app
 app = FastAPI(
     title="Semantic Similarity API",
@@ -90,7 +155,8 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
+    lifespan=lifespan
 )
 logger.info("FastAPI application initialized")
 
@@ -127,71 +193,6 @@ async def log_requests(request: Request, call_next):
         process_time = time.time() - start_time
         logger.error(f"Request failed [ID: {request_id}] - Error: {str(e)} - Time: {process_time:.4f}s")
         raise
-
-# startup event to verify model is properly loaded
-@app.on_event("startup")
-async def startup_event():
-    """Verify model is properly loaded on startup."""
-    logger.info("Application startup - Verifying model service is properly loaded...")
-    logger.info(f"Worker PID: {os.getpid()}")
-    try:
-        s1 = "Hello world"
-        s2 = "Hi there"
-        
-        # Check model service health
-        health_check_start = time.time()
-        is_healthy = model_service.health_check()
-        health_check_time = time.time() - health_check_start
-        
-        if not is_healthy:
-            logger.error("Model service health check failed")
-            return
-            
-        logger.info(f"Model service health check passed in {health_check_time:.4f} seconds")
-        
-        # Test similarity calculation
-        sim_start = time.time()
-        similarity = model_service.calculate_similarity(s1, s2)
-        sim_time = time.time() - sim_start
-        
-        logger.info(f"Model verification successful. Similarity: {similarity:.4f}")
-        logger.info(f"Similarity calculation time: {sim_time:.4f} seconds")
-        
-        # Log memory usage if possible
-        try:
-            import psutil
-            process = psutil.Process(os.getpid())
-            memory_info = process.memory_info()
-            logger.info(f"Worker memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
-        except ImportError:
-            logger.info("psutil not available, memory usage stats skipped")
-            
-    except Exception as e:
-        logger.error(f"Model verification failed: {e}")
-        # We don't want to crash the app, but log the error
-        
-    logger.info("Application startup complete")
-    
-# Shutdown event
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Log application shutdown and cleanup."""
-    logger.info("Application shutdown initiated")
-    
-    # Log memory usage before shutdown
-    try:
-        import psutil
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
-        logger.info(f"Final memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
-        
-        # Log runtime statistics
-        uptime = time.time() - process.create_time()
-        logger.info(f"Application uptime: {uptime:.2f} seconds ({uptime/60:.2f} minutes)")
-    except:
-        logger.info("Could not log final memory usage")
-        
-    logger.info("Application shutdown complete")
 
 # Add a health check endpoint
 @app.get("/health")

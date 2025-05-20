@@ -14,6 +14,9 @@ workers = os.getenv("WORKERS", min(multiprocessing.cpu_count(), 2))
 # Worker class to use
 worker_class = "uvicorn.workers.UvicornWorker"
 
+# Worker temporary directory (use /tmp on macOS since /dev/shm doesn't exist)
+worker_tmp_dir = "/tmp"
+
 # The maximum number of pending connections
 backlog = 2048
 
