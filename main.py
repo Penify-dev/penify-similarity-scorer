@@ -128,11 +128,12 @@ async def log_requests(request: Request, call_next):
         logger.error(f"Request failed [ID: {request_id}] - Error: {str(e)} - Time: {process_time:.4f}s")
         raise
 
-# Startup event to verify model is properly loaded
+# startup event to verify model is properly loaded
 @app.on_event("startup")
 async def startup_event():
     """Verify model is properly loaded on startup."""
     logger.info("Application startup - Verifying model service is properly loaded...")
+    logger.info(f"Worker PID: {os.getpid()}")
     try:
         s1 = "Hello world"
         s2 = "Hi there"

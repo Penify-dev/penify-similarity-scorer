@@ -162,6 +162,26 @@ On systems with NVIDIA GPUs, CUDA will be used automatically.
 
 If running in Docker, make sure to include the GPU runtime configuration as specified in the docker-compose.yml file.
 
+## Memory Optimization
+
+This application is designed for memory efficiency, especially in environments with limited resources:
+
+1. **Single Model Instance**: The model is loaded only once in a dedicated process and shared across all workers
+2. **Conservative Worker Count**: The Gunicorn configuration uses fewer workers than typical to reduce memory usage
+3. **Memory Monitoring**: The application logs memory usage at various points to track resource utilization
+4. **Configurable Worker Count**: You can set the `WORKERS` environment variable to further limit workers
+5. **Worker Lifecycle Management**: Workers are restarted after handling a certain number of requests to prevent memory leaks
+
+### Optimized Startup
+
+For environments with very limited memory, use the optimized startup script:
+
+```bash
+./start_optimized.sh
+```
+
+This script sets environment variables to optimize memory usage and provides memory usage tracking.
+
 ## License
 
 [MIT License](LICENSE)

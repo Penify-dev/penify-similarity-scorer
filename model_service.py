@@ -55,12 +55,28 @@ class ModelServiceProcess(multiprocessing.Process):
         logger.info(f"Starting model service process (PID: {os.getpid()})")
         logger.info(f"Loading model: {self.model_name} from: {self.cache_folder}")
         
+        # Log initial memory usage before model loading
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+            memory_info = process.memory_info()
+            logger.info(f"Memory before model loading - RSS: {memory_info.rss / 1024 / 1024:.2f} MB, VMS: {memory_info.vms / 1024 / 1024:.2f} MB")
+        except:
+            pass
+        
         # Load the model
         try:
             start_time = time.time()
             self.model = SentenceTransformer(self.model_name, cache_folder=self.cache_folder)
             load_time = time.time() - start_time
             logger.info(f"Model loaded successfully in {load_time:.2f} seconds")
+            
+            # Log memory usage after model loading
+            try:
+                memory_info = process.memory_info()
+                logger.info(f"Memory after model loading - RSS: {memory_info.rss / 1024 / 1024:.2f} MB, VMS: {memory_info.vms / 1024 / 1024:.2f} MB")
+            except:
+                pass
             
             # Move model to device if specified
             if self.device:
@@ -190,7 +206,12 @@ class ModelService:
     def get_instance(cls, model_name=None, cache_folder=None, device=None):
         """Get the singleton instance of the model service."""
         if cls._instance is None:
+            logger.info(f"Creating new ModelService instance with model: {model_name}")
             cls._instance = ModelService(model_name, cache_folder, device)
+        else:
+            logger.info("Reusing existing ModelService instance")
+            # Log memory usage of the existing instance
+            cls._instance._log_memory_usage("Existing model service memory usage")
         return cls._instance
     
     def __init__(self, model_name, cache_folder, device=None):
@@ -201,6 +222,9 @@ class ModelService:
         self.model_name = model_name
         self.cache_folder = cache_folder
         self.device = device
+        
+        # Log memory usage before loading model
+        self._log_memory_usage("Before model service initialization")
         
         # Create queues for communication
         self.request_queue = multiprocessing.Queue()
@@ -224,7 +248,10 @@ class ModelService:
         self.response_thread.daemon = True
         self.response_thread.start()
         
-        logger.info(f"ModelService initialized with model {model_name}")
+        # Log memory usage after starting model service
+        self._log_memory_usage("After model service initialization")
+        
+        logger.info(f"ModelService initialized with model {model_name} (Service PID: {self.process.pid}, Main PID: {os.getpid()})")
         
     def _response_listener(self):
         """Listen for responses from the model service."""
@@ -340,6 +367,28 @@ class ModelService:
         self.process.join(timeout=5)
         
         logger.info("Model service shutdown complete")
+        
+    def _log_memory_usage(self, message="Current memory usage"):
+        """Log the current memory usage."""
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+            memory_info = process.memory_info()
+            logger.info(f"{message} - RSS: {memory_info.rss / 1024 / 1024:.2f} MB, VMS: {memory_info.vms / 1024 / 1024:.2f} MB")
+            
+            # Try to get model service process memory if available
+            try:
+                if hasattr(self, 'process') and self.process.pid:
+                    model_process = psutil.Process(self.process.pid)
+                    model_memory = model_process.memory_info()
+                    logger.info(f"Model service process memory - RSS: {model_memory.rss / 1024 / 1024:.2f} MB, VMS: {model_memory.vms / 1024 / 1024:.2f} MB")
+            except:
+                pass
+                
+        except ImportError:
+            logger.info(f"{message} - psutil not available, memory usage stats skipped")
+        except Exception as e:
+            logger.warning(f"Failed to log memory usage: {e}")
 
 # Example usage
 if __name__ == "__main__":

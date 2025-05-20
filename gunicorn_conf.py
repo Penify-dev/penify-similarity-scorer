@@ -8,7 +8,8 @@ bind = os.getenv("BIND", "0.0.0.0:16000")
 # Number of worker processes
 # For memory-intensive models, we use a smaller number of workers
 # than the typical recommendation of (2 x $num_cores) + 1
-workers = os.getenv("WORKERS", min(multiprocessing.cpu_count() + 1, 4))
+# For very limited memory, we use an even more conservative approach
+workers = os.getenv("WORKERS", min(multiprocessing.cpu_count(), 2))
 
 # Worker class to use
 worker_class = "uvicorn.workers.UvicornWorker"
@@ -35,6 +36,10 @@ proc_name = "similarity-scorer"
 
 # Preload the application
 preload_app = True
+
+# Max requests before worker restart to prevent memory leaks
+max_requests = 1000
+max_requests_jitter = 50
 
 # Configuration specific to development mode
 if reload:
