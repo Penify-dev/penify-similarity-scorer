@@ -27,14 +27,24 @@ pip install -r requirements.txt
 
 ### Option 1: Run directly with Python
 
-1. Start the server:
+#### Development Mode
 ```bash
 uvicorn main:app --reload
 ```
 
-2. The server will run at: `http://127.0.0.1:8000`
+#### Production Mode with Gunicorn
+```bash
+./start.sh
+```
 
-3. Interactive API documentation is available at: `http://127.0.0.1:8000/docs`
+You can customize settings by setting environment variables:
+```bash
+MODEL_NAME=all-mpnet-base-v2 WORKERS=4 ./start.sh
+```
+
+The server will run at: `http://127.0.0.1:8000`
+
+Interactive API documentation is available at: `http://127.0.0.1:8000/docs`
 
 ### Option 2: Run with Docker
 

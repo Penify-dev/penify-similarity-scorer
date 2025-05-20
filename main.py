@@ -48,8 +48,47 @@ if mac_gpu_available:
 app = FastAPI(
     title="Semantic Similarity API",
     description="API for comparing semantic similarity between text strings",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
+
+# Add CORS middleware
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
+# Add Gzip compression for responses
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)  # Only compress responses larger than 1KB
+
+# Startup event to verify model is properly loaded
+@app.on_event("startup")
+async def startup_event():
+    """Verify model is properly loaded on startup."""
+    # Run a sample comparison to ensure model is loaded
+    print("Verifying model is properly loaded...")
+    try:
+        s1 = "Hello world"
+        s2 = "Hi there"
+        emb1 = model.encode(s1, convert_to_tensor=True)
+        emb2 = model.encode(s2, convert_to_tensor=True)
+        
+        if mac_gpu_available:
+            emb1 = emb1.to(device)
+            emb2 = emb2.to(device)
+            
+        similarity = util.pytorch_cos_sim(emb1, emb2).item()
+        print(f"Model verification successful. Similarity: {similarity:.4f}")
+    except Exception as e:
+        print(f"Model verification failed: {e}")
+        # We don't want to crash the app, but log the error
 
 # Route for system info
 @app.get("/system-info")

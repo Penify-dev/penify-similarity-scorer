@@ -6,12 +6,18 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
       - model-cache:/app/models  # Persist model cache between container restarts
     restart: unless-stopped
     environment:
       - MODEL_NAME=all-MiniLM-L6-v2  # Can be changed to all-mpnet-base-v2 for higher accuracy
-      # Add additional environment variables if needed
+      - WORKERS=4  # Adjust based on your machine's resources
+      - LOG_LEVEL=info
+    # Health check to ensure the service is running properly
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/system-info"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     # Note: For macOS, the deploy section with NVIDIA config won't work
     # but is kept for compatibility with Linux/Windows users
     # macOS GPU acceleration requires PyTorch with MPS support
