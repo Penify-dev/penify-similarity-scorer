@@ -38,8 +38,9 @@ proc_name = "similarity-scorer"
 preload_app = True
 
 # Max requests before worker restart to prevent memory leaks
-max_requests = 1000
-max_requests_jitter = 50
+# Set to 0 to disable worker restart (prevents issues with auto-restarting servers)
+max_requests = int(os.getenv("MAX_REQUESTS", "0"))
+max_requests_jitter = int(os.getenv("MAX_REQUESTS_JITTER", "0"))
 
 # Configuration specific to development mode
 if reload:

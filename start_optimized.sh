@@ -1,6 +1,11 @@
 #!/bin/bash
 # Start script for the Similarity Scorer application with explicit memory monitoring
 
+# First, check if an old server is running and terminate it
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
+./force_terminate.sh
+
 # Set environment variables for better memory management
 export MALLOC_ARENA_MAX=2  # Limit memory arenas for glibc malloc (helps reduce memory fragmentation)
 export PYTHONMALLOC=malloc  # Use system malloc instead of Python's pymalloc (can be more memory efficient)
@@ -8,6 +13,10 @@ export PYTHONMALLOC=malloc  # Use system malloc instead of Python's pymalloc (ca
 # Optional: Force garbage collection more aggressively
 export PYTHONDEVMODE=1
 export PYTHONGC="threshold=10,autoscale=5"  # More aggressive GC settings
+
+# Disable auto-restart behavior
+export GUNICORN_CMD_ARGS="--max-requests 0 --worker-tmp-dir /dev/shm"
+export RELOAD=false
 
 # Log memory usage
 echo "Starting server with memory tracking..."

@@ -105,49 +105,6 @@ These scripts will:
 2. Attempt to terminate them gracefully (regular script) or forcefully (force script)
 3. Report the status after termination attempt
 
-### Controlling the Server
-
-#### Starting the Server
-
-To start the server in production mode:
-
-```bash
-./start.sh
-```
-
-For memory-constrained environments:
-
-```bash
-./start_optimized.sh
-```
-
-#### Stopping the Server
-
-To stop any running server instances, use one of these termination scripts:
-
-```bash
-# Regular termination script - tries graceful shutdown first
-./terminate.sh
-
-# Force termination - more aggressive, no confirmation
-./force_terminate.sh
-
-# macOS-specific termination - use this on macOS if other scripts fail
-./macos_terminate.sh
-```
-
-The termination scripts will:
-1. Identify all running processes related to the similarity scorer
-2. Stop the master processes first to prevent auto-restart
-3. Force kill any remaining worker processes
-4. Verify termination and provide feedback
-
-If you encounter issues with servers that keep restarting automatically:
-1. Use the macOS-specific termination script on Mac
-2. For stubborn processes, you may need to use: `sudo pkill -9 -f "gunicorn"`
-
-> **Note:** The start scripts have been configured to prevent the auto-restart behavior that can make termination difficult.
-
 ## API Endpoints
 
 ### POST /compare
