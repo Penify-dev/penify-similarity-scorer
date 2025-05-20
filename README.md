@@ -42,15 +42,15 @@ You can customize settings by setting environment variables:
 MODEL_NAME=all-mpnet-base-v2 WORKERS=4 ./start.sh
 ```
 
-The server will run at: `http://127.0.0.1:8000`
+The server will run at: `http://127.0.0.1:16000`
 
-Interactive API documentation is available at: `http://127.0.0.1:8000/docs`
+Interactive API documentation is available at: `http://127.0.0.1:16000/docs`
 
 ### Option 2: Run with Docker
 
 ```bash
 docker build -t similarity-scorer .
-docker run -p 8000:8000 similarity-scorer
+docker run -p 16000:16000 similarity-scorer
 ```
 
 ### Option 3: Run with Docker Compose
@@ -105,7 +105,7 @@ You can change the model in two ways:
    MODEL_NAME=all-mpnet-base-v2 uvicorn main:app --reload
    
    # When running with Docker
-   docker run -p 8000:8000 -e MODEL_NAME=all-mpnet-base-v2 similarity-scorer
+   docker run -p 16000:16000 -e MODEL_NAME=all-mpnet-base-v2 similarity-scorer
    
    # Or update the environment variable in docker-compose.yml
    # and then run docker-compose up
@@ -143,7 +143,7 @@ On macOS, the application uses:
 
 To check if your Mac is using GPU acceleration:
 1. Start the server
-2. Visit `http://127.0.0.1:8000/system-info` to see device information
+2. Visit `http://127.0.0.1:16000/system-info` to see device information
 3. Look for `"mps_available": true` and `"current_device": "mps"` in the response
 
 #### NVIDIA GPU Support (Linux/Windows)

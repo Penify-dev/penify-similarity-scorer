@@ -4,7 +4,7 @@ services:
   similarity-api:
     build: .
     ports:
-      - "8000:8000"
+      - "16000:16000"
     volumes:
       - model-cache:/app/models  # Persist model cache between container restarts
     restart: unless-stopped
@@ -14,7 +14,7 @@ services:
       - LOG_LEVEL=info
     # Health check to ensure the service is running properly
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/system-info"]
+      test: ["CMD", "curl", "-f", "http://localhost:16000/system-info"]
       interval: 30s
       timeout: 10s
       retries: 3
