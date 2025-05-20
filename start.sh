@@ -18,7 +18,7 @@ mkdir -p models
 
 # Start the application using uvicorn directly - simpler and more reliable for FastAPI
 echo "Starting similarity-scorer application..."
-uvicorn main:app --host 0.0.0.0 --port 16000 --workers 2
+uvicorn main:app --host 0.0.0.0 --port 16000 --workers 2 
 
 echo "Application started on http://localhost:16000"
 echo "API documentation available at http://localhost:16000/docs"
