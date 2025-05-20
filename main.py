@@ -13,6 +13,8 @@ import atexit
 
 # Import simplified model service
 from model_service import ModelService
+# Import the new Equivalence model service
+from equivalence_model_service import EquivalenceModelService
 
 # Configure logging
 logging.basicConfig(
@@ -60,7 +62,10 @@ else:
 
 # Get model name from environment variable or use default
 model_name = os.environ.get("MODEL_NAME", "all-mpnet-base-v2")
-logger.info(f"Loading model: {model_name} from cache directory: {models_dir}")
+# Get equivalence model name from environment variable or use the specified one
+equivalence_model_name = os.environ.get("EQUIVALENCE_MODEL_NAME", "ynie/roberta-large-snli_mnli_fever_anli_R1_R2_R3-nli")
+logger.info(f"Loading models:\n - Similarity model: {model_name}\n - Equivalence model: {equivalence_model_name}")
+logger.info(f"Using cache directory: {models_dir}")
 
 # Initialize the model service
 start_time = time.time()
@@ -70,38 +75,45 @@ try:
     load_time = time.time() - start_time
     logger.info(f"Model service initialized in {load_time:.2f} seconds")
     
+    # Initialize the equivalence model service
+    start_time = time.time()
+    equivalence_model_service = EquivalenceModelService.get_instance(equivalence_model_name, models_dir, device)
+    load_time = time.time() - start_time
+    logger.info(f"Equivalence model service initialized in {load_time:.2f} seconds")
+    
     # Register shutdown function to clean up the model service
     def shutdown_model_service():
-        logger.info("Shutting down model service")
+        logger.info("Shutting down model services")
         try:
             model_service.shutdown()
-            logger.info("Model service shutdown completed successfully")
+            equivalence_model_service.shutdown()
+            logger.info("Model services shutdown completed successfully")
         except Exception as e:
-            logger.error(f"Error during model service shutdown: {e}")
+            logger.error(f"Error during model services shutdown: {e}")
     
     atexit.register(shutdown_model_service)
     
 except Exception as e:
-    logger.error(f"Failed to initialize model service: {e}")
+    logger.error(f"Failed to initialize model services: {e}")
     raise
 
 # FastAPI lifespan context manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: verify model is properly loaded
-    logger.info("Application startup - Verifying model service is properly loaded...")
+    logger.info("Application startup - Verifying model services are properly loaded...")
     try:
-        # Check model service health
+        # Check similarity model service health
         health_check_start = time.time()
         is_healthy = model_service.health_check()
         health_check_time = time.time() - health_check_start
         
         if not is_healthy:
-            logger.error(f"Model service health check failed in {health_check_time:.4f} seconds")
+            logger.error(f"Similarity model service health check failed in {health_check_time:.4f} seconds")
             # Don't crash the app, but log that we're continuing with degraded functionality
-            logger.warning("Application will continue but model functionality may be limited")
+            logger.warning("Application will continue but similarity model functionality may be limited")
         else:    
-            logger.info(f"Model service health check passed in {health_check_time:.4f} seconds")
+            logger.info(f"Similarity model service health check passed in {health_check_time:.4f} seconds")
             
             # Test similarity calculation
             s1 = "Hello world"
@@ -111,20 +123,45 @@ async def lifespan(app: FastAPI):
                 similarity = model_service.calculate_similarity(s1, s2)
                 sim_time = time.time() - sim_start
                 
-                logger.info(f"Model verification successful. Similarity: {similarity:.4f}")
+                logger.info(f"Similarity model verification successful. Similarity: {similarity:.4f}")
                 logger.info(f"Similarity calculation time: {sim_time:.4f} seconds")
             except Exception as sim_error:
                 logger.error(f"Similarity calculation test failed: {sim_error}")
-                logger.warning("Application will continue but model functionality may be limited")
+                logger.warning("Application will continue but similarity model functionality may be limited")
+        
+        # Check equivalence model service health
+        health_check_start = time.time()
+        is_healthy_eq = equivalence_model_service.health_check()
+        health_check_time = time.time() - health_check_start
+        
+        if not is_healthy_eq:
+            logger.error(f"Equivalence model service health check failed in {health_check_time:.4f} seconds")
+            logger.warning("Application will continue but equivalence model functionality may be limited")
+        else:    
+            logger.info(f"Equivalence model service health check passed in {health_check_time:.4f} seconds")
             
-            # Log memory usage if possible
+            # Test equivalence classification
+            p = "The cat is on the mat"
+            h = "There is a cat sitting on a mat"
+            eq_start = time.time()
             try:
-                import psutil
-                process = psutil.Process(os.getpid())
-                memory_info = process.memory_info()
-                logger.info(f"Worker memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
-            except ImportError:
-                logger.info("psutil not available, memory usage stats skipped")
+                result = equivalence_model_service.classify_texts(p, h)
+                eq_time = time.time() - eq_start
+                
+                logger.info(f"Equivalence model verification successful. Result: {result['predicted_label']}")
+                logger.info(f"Equivalence calculation time: {eq_time:.4f} seconds")
+            except Exception as eq_error:
+                logger.error(f"Equivalence classification test failed: {eq_error}")
+                logger.warning("Application will continue but equivalence model functionality may be limited")
+            
+        # Log memory usage if possible
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+            memory_info = process.memory_info()
+            logger.info(f"Worker memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
+        except ImportError:
+            logger.info("psutil not available, memory usage stats skipped")
                 
     except Exception as e:
         logger.error(f"Model verification failed: {e}")
@@ -195,36 +232,67 @@ async def health_check():
         "version": "1.0.0"
     }
     
-    # Check model service status
+    # Check similarity model service status
     try:
-        logger.info("Health check - Testing model service")
+        logger.info("Health check - Testing similarity model service")
         health_check_start = time.time()
-        model_service_healthy = model_service.health_check()
+        similarity_service_healthy = model_service.health_check()
         health_check_time = time.time() - health_check_start
         
-        logger.info(f"Health check - Model service: {model_service_healthy}, time: {health_check_time:.4f}s")
+        logger.info(f"Health check - Similarity model service: {similarity_service_healthy}, time: {health_check_time:.4f}s")
         
-        if model_service_healthy:
-            health_status["model_service"] = {
+        if similarity_service_healthy:
+            health_status["similarity_model_service"] = {
                 "status": "healthy",
                 "name": model_name,
                 "response_time": health_check_time
             }
         else:
             health_status["status"] = "degraded"
-            health_status["model_service"] = {
+            health_status["similarity_model_service"] = {
                 "status": "error",
-                "error": "Model service health check failed",
+                "error": "Similarity model service health check failed",
                 "response_time": health_check_time
             }
-            logger.error("Health check - Model service health check failed")
+            logger.error("Health check - Similarity model service health check failed")
     except Exception as e:
         health_status["status"] = "degraded"
-        health_status["model_service"] = {
+        health_status["similarity_model_service"] = {
             "status": "error",
             "error": str(e)
         }
-        logger.error(f"Health check - Model service test failed: {e}")
+        logger.error(f"Health check - Similarity model service test failed: {e}")
+    
+    # Check equivalence model service status
+    try:
+        logger.info("Health check - Testing equivalence model service")
+        health_check_start = time.time()
+        equivalence_service_healthy = equivalence_model_service.health_check()
+        health_check_time = time.time() - health_check_start
+        
+        logger.info(f"Health check - Equivalence model service: {equivalence_service_healthy}, time: {health_check_time:.4f}s")
+        
+        if equivalence_service_healthy:
+            health_status["equivalence_model_service"] = {
+                "status": "healthy",
+                "name": equivalence_model_name,
+                "response_time": health_check_time
+            }
+        else:
+            health_status["status"] = "degraded"
+            health_status["equivalence_model_service"] = {
+                "status": "error",
+                "error": "Equivalence model service health check failed",
+                "response_time": health_check_time
+            }
+            logger.error("Health check - Equivalence model service health check failed")
+    except Exception as e:
+        health_status["status"] = "degraded"
+        health_status["equivalence_model_service"] = {
+            "status": "error",
+            "error": str(e)
+        }
+        logger.error(f"Health check - Equivalence model service test failed: {e}")
     
     # Memory metrics
     try:
@@ -289,6 +357,37 @@ async def compare_sentences(data: CompareRequest):
         "semantic_similarity": round(similarity, 4),
         "processing_time_seconds": sim_time
     }
+    
+    logger.info(f"[ID: {request_id}] Request completed successfully")
+    return result
+
+# Request body structure for equivalence
+class EquivalenceRequest(BaseModel):
+    premise: str
+    hypothesis: str
+
+# Route to check semantic equivalence
+@app.post("/classify-equivalence")
+async def classify_equivalence(data: EquivalenceRequest):
+    request_id = f"req-{int(time.time() * 1000)}"
+    logger.info(f"Equivalence endpoint called [ID: {request_id}]")
+    logger.info(f"Premise ({len(data.premise)} chars): {data.premise[:50]}...")
+    logger.info(f"Hypothesis ({len(data.hypothesis)} chars): {data.hypothesis[:50]}...")
+    
+    # Calculate equivalence
+    eq_start = time.time()
+    try:
+        result = equivalence_model_service.classify_texts(data.premise, data.hypothesis)
+        eq_time = time.time() - eq_start
+        logger.info(f"[ID: {request_id}] Classified equivalence ({result['predicted_label']}) in {eq_time:.4f}s")
+    except Exception as e:
+        logger.error(f"[ID: {request_id}] Equivalence classification failed: {str(e)}")
+        raise
+    
+    # Add the original texts and processing time to the result
+    result["premise"] = data.premise
+    result["hypothesis"] = data.hypothesis
+    result["processing_time_seconds"] = eq_time
     
     logger.info(f"[ID: {request_id}] Request completed successfully")
     return result

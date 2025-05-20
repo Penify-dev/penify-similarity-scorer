@@ -5,11 +5,11 @@ echo "Looking for running similarity-scorer servers..."
 
 # Find the master Gunicorn process (parent process)
 echo "Searching for master Gunicorn processes..."
-MASTER_PIDS=$(ps -ef | grep "gunicorn" | grep "main:app" | grep -v grep | grep -v "worker" | awk '{print $2}')
+MASTER_PIDS=$(ps -ef | grep "uvicorn" | grep "main:app" | grep -v grep | grep -v "worker" | awk '{print $2}')
 
 # Find worker Gunicorn processes
 echo "Searching for Gunicorn worker processes..."
-WORKER_PIDS=$(ps -ef | grep "gunicorn" | grep "main:app" | grep "worker" | grep -v grep | awk '{print $2}')
+WORKER_PIDS=$(ps -ef | grep "uvicorn" | grep "main:app" | grep "worker" | grep -v grep | awk '{print $2}')
 
 # Find the model service process
 echo "Searching for Python model service processes..."
@@ -71,15 +71,15 @@ if [ $STILL_RUNNING -eq 0 ]; then
     echo "All similarity-scorer processes successfully terminated."
 else
     echo "Some processes could not be terminated. The server might be running in a different context."
-    echo "Try the following command to see all gunicorn processes:"
-    echo "ps aux | grep gunicorn"
+    echo "Try the following command to see all uvicorn processes:"
+    echo "ps aux | grep uvicorn"
     echo "Then manually kill them with:"
     echo "sudo kill -9 <PID>"
 fi
 
-# Failsafe - check for any new gunicorn processes
-echo "Checking for any new gunicorn processes..."
-NEW_GUNICORN=$(ps aux | grep "gunicorn" | grep "main:app" | grep -v grep | awk '{print $2}')
+# Failsafe - check for any new uvicorn processes
+echo "Checking for any new uvicorn processes..."
+NEW_GUNICORN=$(ps aux | grep "uvicorn" | grep "main:app" | grep -v grep | awk '{print $2}')
 if [ ! -z "$NEW_GUNICORN" ]; then
     echo "New gunicorn processes detected: $NEW_GUNICORN"
     echo "These might be auto-restarted. Killing them with sudo..."
