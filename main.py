@@ -10,6 +10,10 @@ import time
 import json
 import sys
 from datetime import datetime
+import atexit
+
+# Import model service
+from model_service import ModelService
 
 # Configure logging
 logging.basicConfig(
@@ -59,28 +63,25 @@ else:
 model_name = os.environ.get("MODEL_NAME", "all-mpnet-base-v2")
 logger.info(f"Loading model: {model_name} from cache directory: {models_dir}")
 
-# Load model with caching in the models directory
-# GPU will be used automatically if available
+# Initialize the model service instead of loading the model directly
+# This creates a single shared model across all workers
 start_time = time.time()
 try:
-    model = SentenceTransformer(model_name, cache_folder=models_dir)
+    # Get the model service singleton
+    model_service = ModelService.get_instance(model_name, models_dir, device)
     load_time = time.time() - start_time
-    logger.info(f"Model loaded successfully in {load_time:.2f} seconds")
+    logger.info(f"Model service initialized in {load_time:.2f} seconds")
+    
+    # Register shutdown function to clean up the model service
+    def shutdown_model_service():
+        logger.info("Shutting down model service")
+        model_service.shutdown()
+    
+    atexit.register(shutdown_model_service)
+    
 except Exception as e:
-    logger.error(f"Failed to load model: {e}")
+    logger.error(f"Failed to initialize model service: {e}")
     raise
-
-# For macOS GPU (MPS), we need to explicitly move the model
-if mac_gpu_available:
-    try:
-        # Try to move model to MPS device 
-        model_move_start = time.time()
-        model.to(device)
-        model_move_time = time.time() - model_move_start
-        logger.info(f"Successfully moved model to MPS device in {model_move_time:.2f} seconds")
-    except Exception as e:
-        logger.error(f"Warning: Could not move model to MPS device: {e}")
-        logger.info("Falling back to CPU")
 
 # FastAPI app
 app = FastAPI(
@@ -131,47 +132,36 @@ async def log_requests(request: Request, call_next):
 @app.on_event("startup")
 async def startup_event():
     """Verify model is properly loaded on startup."""
-    logger.info("Application startup - Verifying model is properly loaded...")
+    logger.info("Application startup - Verifying model service is properly loaded...")
     try:
         s1 = "Hello world"
         s2 = "Hi there"
         
-        encode_start = time.time()
-        emb1 = model.encode(s1, convert_to_tensor=True)
-        emb2 = model.encode(s2, convert_to_tensor=True)
-        encode_time = time.time() - encode_start
-        logger.info(f"Encoded test sentences in {encode_time:.4f} seconds")
+        # Check model service health
+        health_check_start = time.time()
+        is_healthy = model_service.health_check()
+        health_check_time = time.time() - health_check_start
         
-        # If using macOS GPU, move tensors to the device
-        if mac_gpu_available:
-            try:
-                device_move_start = time.time()
-                emb1 = emb1.to(device)
-                emb2 = emb2.to(device)
-                device_move_time = time.time() - device_move_start
-                logger.info(f"Moved tensors to MPS device in {device_move_time:.4f} seconds")
-            except Exception as e:
-                logger.error(f"Failed to move tensors to MPS device: {e}")
+        if not is_healthy:
+            logger.error("Model service health check failed")
+            return
+            
+        logger.info(f"Model service health check passed in {health_check_time:.4f} seconds")
         
-        similarity_start = time.time()
-        similarity = util.pytorch_cos_sim(emb1, emb2).item()
-        similarity_time = time.time() - similarity_start
-        logger.info(f"Computed similarity in {similarity_time:.4f} seconds")
+        # Test similarity calculation
+        sim_start = time.time()
+        similarity = model_service.calculate_similarity(s1, s2)
+        sim_time = time.time() - sim_start
         
         logger.info(f"Model verification successful. Similarity: {similarity:.4f}")
-        logger.info(f"Total verification time: {encode_time + similarity_time:.4f} seconds")
-        
-        # Log model details
-        if hasattr(model, 'get_sentence_embedding_dimension'):
-            dimension = model.get_sentence_embedding_dimension()
-            logger.info(f"Model embedding dimension: {dimension}")
+        logger.info(f"Similarity calculation time: {sim_time:.4f} seconds")
         
         # Log memory usage if possible
         try:
             import psutil
             process = psutil.Process(os.getpid())
             memory_info = process.memory_info()
-            logger.info(f"Memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
+            logger.info(f"Worker memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
         except ImportError:
             logger.info("psutil not available, memory usage stats skipped")
             
@@ -214,25 +204,29 @@ async def health_check():
         "version": "1.0.0"
     }
     
-    # Check model status
+    # Check model service status
     try:
-        # Quick model test
-        test_start = time.time()
-        model.encode("Health check test", convert_to_tensor=True)
-        test_time = time.time() - test_start
+        model_service_healthy = model_service.health_check()
         
-        health_status["model"] = {
-            "status": "loaded",
-            "name": model_name,
-            "test_encode_time": test_time
-        }
+        if model_service_healthy:
+            health_status["model_service"] = {
+                "status": "healthy",
+                "name": model_name
+            }
+        else:
+            health_status["status"] = "degraded"
+            health_status["model_service"] = {
+                "status": "error",
+                "error": "Model service health check failed"
+            }
+            logger.error("Health check - Model service health check failed")
     except Exception as e:
         health_status["status"] = "degraded"
-        health_status["model"] = {
+        health_status["model_service"] = {
             "status": "error",
             "error": str(e)
         }
-        logger.error(f"Health check - Model test failed: {e}")
+        logger.error(f"Health check - Model service test failed: {e}")
     
     # Memory metrics
     try:
@@ -318,10 +312,10 @@ async def system_info():
             "mps_available": torch.backends.mps.is_available() if hasattr(torch.backends, "mps") else False,
             "current_device": str(device) if device else "cpu"
         },
-        "model": {
+        "model_service": {
             "name": model_name,
             "cache_dir": models_dir,
-            "embedding_dimension": model.get_sentence_embedding_dimension() if hasattr(model, 'get_sentence_embedding_dimension') else "unknown"
+            "is_healthy": model_service.health_check()
         },
         "memory": memory_info,
         "uptime": uptime_info
@@ -361,39 +355,10 @@ async def compare_sentences(data: CompareRequest):
     # Performance metrics
     processing_metrics = {}
 
-    # Explicitly use the configured device if available
-    encode_start = time.time()
-    try:
-        emb1 = model.encode(s1, convert_to_tensor=True)
-        encode_time_s1 = time.time() - encode_start
-        processing_metrics["encode_time_s1"] = encode_time_s1
-        
-        encode_start_s2 = time.time()
-        emb2 = model.encode(s2, convert_to_tensor=True)
-        encode_time_s2 = time.time() - encode_start_s2
-        processing_metrics["encode_time_s2"] = encode_time_s2
-        
-        logger.info(f"[ID: {request_id}] Encoded sentences - S1: {encode_time_s1:.4f}s, S2: {encode_time_s2:.4f}s")
-    except Exception as e:
-        logger.error(f"[ID: {request_id}] Encoding failed: {str(e)}")
-        raise
-    
-    # If using macOS GPU, move tensors to the device
-    if mac_gpu_available:
-        try:
-            device_start = time.time()
-            emb1 = emb1.to(device)
-            emb2 = emb2.to(device)
-            device_time = time.time() - device_start
-            processing_metrics["device_transfer_time"] = device_time
-            logger.info(f"[ID: {request_id}] Moved tensors to MPS device: {device_time:.4f}s")
-        except Exception as e:
-            logger.error(f"[ID: {request_id}] Warning: Failed to move tensors to MPS device: {e}")
-    
-    # Calculate similarity
+    # Calculate similarity using the model service
     sim_start = time.time()
     try:
-        similarity = util.pytorch_cos_sim(emb1, emb2).item()
+        similarity = model_service.calculate_similarity(s1, s2)
         sim_time = time.time() - sim_start
         processing_metrics["similarity_calculation_time"] = sim_time
         logger.info(f"[ID: {request_id}] Calculated similarity ({similarity:.4f}) in {sim_time:.4f}s")
@@ -401,21 +366,14 @@ async def compare_sentences(data: CompareRequest):
         logger.error(f"[ID: {request_id}] Similarity calculation failed: {str(e)}")
         raise
     
-    # Total processing time
-    total_time = sum(processing_metrics.values())
-    processing_metrics["total_processing_time"] = total_time
-    
     # Log detailed performance metrics
     logger.info(f"[ID: {request_id}] Performance metrics: {json.dumps(processing_metrics)}")
-    
-    # Log embedding shapes for debugging
-    logger.debug(f"[ID: {request_id}] Embedding shapes - S1: {emb1.shape}, S2: {emb2.shape}")
     
     result = {
         "sentence1": s1,
         "sentence2": s2,
         "semantic_similarity": round(similarity, 4),
-        "processing_time_seconds": total_time
+        "processing_time_seconds": processing_metrics["similarity_calculation_time"]
     }
     
     logger.info(f"[ID: {request_id}] Request completed successfully")

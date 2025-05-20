@@ -131,6 +131,16 @@ The application is configured to cache downloaded models in the `models/` direct
 
 This is especially important for larger models like "all-mpnet-base-v2" which can be several hundred MB in size.
 
+### Shared Model Process
+
+To optimize memory usage, the application uses a dedicated model service that runs in a separate process:
+
+1. Only one copy of the model is loaded in memory regardless of how many Gunicorn workers are running
+2. All worker processes communicate with the model service via IPC (inter-process communication)
+3. This significantly reduces memory usage when running with multiple workers
+
+This architecture is particularly beneficial for large models that would otherwise consume several GB of RAM if loaded separately in each worker process.
+
 ### GPU Support
 
 The application automatically detects and uses available GPU resources:

@@ -6,8 +6,9 @@ import os
 bind = os.getenv("BIND", "0.0.0.0:16000")
 
 # Number of worker processes
-# Recommendation: (2 x $num_cores) + 1
-workers = os.getenv("WORKERS", multiprocessing.cpu_count() * 2 + 1)
+# For memory-intensive models, we use a smaller number of workers
+# than the typical recommendation of (2 x $num_cores) + 1
+workers = os.getenv("WORKERS", min(multiprocessing.cpu_count() + 1, 4))
 
 # Worker class to use
 worker_class = "uvicorn.workers.UvicornWorker"
