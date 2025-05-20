@@ -121,6 +121,27 @@ The application is configured to cache downloaded models in the `models/` direct
 
 This is especially important for larger models like "all-mpnet-base-v2" which can be several hundred MB in size.
 
+### GPU Support
+
+The application automatically detects and uses available GPU resources:
+
+#### macOS GPU Support (Apple Silicon/AMD)
+
+On macOS, the application uses:
+- Apple's Metal Performance Shaders (MPS) backend on Apple Silicon (M1/M2/M3) Macs
+- AMD GPUs on Intel Macs with compatible graphics cards
+
+To check if your Mac is using GPU acceleration:
+1. Start the server
+2. Visit `http://127.0.0.1:8000/system-info` to see device information
+3. Look for `"mps_available": true` and `"current_device": "mps"` in the response
+
+#### NVIDIA GPU Support (Linux/Windows)
+
+On systems with NVIDIA GPUs, CUDA will be used automatically.
+
+If running in Docker, make sure to include the GPU runtime configuration as specified in the docker-compose.yml file.
+
 ## License
 
 [MIT License](LICENSE)

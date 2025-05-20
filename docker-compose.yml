@@ -12,13 +12,10 @@ services:
     environment:
       - MODEL_NAME=all-MiniLM-L6-v2  # Can be changed to all-mpnet-base-v2 for higher accuracy
       # Add additional environment variables if needed
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]  # This enables GPU if available
+    # Note: For macOS, the deploy section with NVIDIA config won't work
+    # but is kept for compatibility with Linux/Windows users
+    # macOS GPU acceleration requires PyTorch with MPS support
+    # which is handled in the application code
 
 volumes:
   model-cache:  # Named volume for model persistence
