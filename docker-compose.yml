@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  similarity-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    environment:
+      - MODEL_NAME=all-MiniLM-L6-v2  # Can be changed to all-mpnet-base-v2 for higher accuracy
+      # Add additional environment variables if needed
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]  # This enables GPU if available
