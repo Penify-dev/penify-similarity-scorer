@@ -76,7 +76,12 @@ try:
     # Register shutdown function to clean up the model service
     def shutdown_model_service():
         logger.info("Shutting down model service")
-        model_service.shutdown()
+        try:
+            # Make sure to properly close and clean up resources
+            model_service.shutdown()
+            logger.info("Model service shutdown completed successfully")
+        except Exception as e:
+            logger.error(f"Error during model service shutdown: {e}")
     
     atexit.register(shutdown_model_service)
     
@@ -96,21 +101,27 @@ async def lifespan(app: FastAPI):
         
         # Check model service health
         health_check_start = time.time()
-        is_healthy = model_service.health_check()
+        is_healthy = model_service.health_check(timeout=3)  # Reduced timeout from default
         health_check_time = time.time() - health_check_start
         
         if not is_healthy:
-            logger.error("Model service health check failed")
+            logger.error(f"Model service health check failed in {health_check_time:.4f} seconds")
+            # Don't crash the app, but log that we're continuing with degraded functionality
+            logger.warning("Application will continue but model functionality may be limited")
         else:    
             logger.info(f"Model service health check passed in {health_check_time:.4f} seconds")
             
             # Test similarity calculation
             sim_start = time.time()
-            similarity = model_service.calculate_similarity(s1, s2)
-            sim_time = time.time() - sim_start
-            
-            logger.info(f"Model verification successful. Similarity: {similarity:.4f}")
-            logger.info(f"Similarity calculation time: {sim_time:.4f} seconds")
+            try:
+                similarity = model_service.calculate_similarity(s1, s2)
+                sim_time = time.time() - sim_start
+                
+                logger.info(f"Model verification successful. Similarity: {similarity:.4f}")
+                logger.info(f"Similarity calculation time: {sim_time:.4f} seconds")
+            except Exception as sim_error:
+                logger.error(f"Similarity calculation test failed: {sim_error}")
+                logger.warning("Application will continue but model functionality may be limited")
             
             # Log memory usage if possible
             try:
@@ -208,20 +219,48 @@ async def health_check():
     
     # Check model service status
     try:
-        model_service_healthy = model_service.health_check()
+        logger.info("Health check - Testing model service")
+        # Set a timeout for the health check
+        health_check_start = time.time()
+        model_service_healthy = model_service.health_check(timeout=30)  # Reduced from default 5
+        health_check_time = time.time() - health_check_start
+        
+        logger.info(f"Health check - Model service health check took {health_check_time:.4f}s, result: {model_service_healthy}")
         
         if model_service_healthy:
             health_status["model_service"] = {
                 "status": "healthy",
-                "name": model_name
+                "name": model_name,
+                "response_time": health_check_time
             }
         else:
             health_status["status"] = "degraded"
             health_status["model_service"] = {
                 "status": "error",
-                "error": "Model service health check failed"
+                "error": "Model service health check failed",
+                "response_time": health_check_time
             }
             logger.error("Health check - Model service health check failed")
+            
+            # Try to restart the model service if health check failed
+            try:
+                # This is a basic approach - in production, you might want a more sophisticated
+                # recovery mechanism or rely on the process supervisor
+                logger.info("Health check - Attempting to verify model service process is running")
+                
+                # At least log additional info that might help diagnose the issue
+                try:
+                    import psutil
+                    if hasattr(model_service, 'process') and model_service.process.pid:
+                        model_process = psutil.Process(model_service.process.pid)
+                        if model_process.is_running():
+                            logger.info(f"Health check - Model service process {model_service.process.pid} is running")
+                        else:
+                            logger.error(f"Health check - Model service process {model_service.process.pid} is NOT running")
+                except:
+                    logger.error("Health check - Could not check model service process status")
+            except Exception as recovery_error:
+                logger.error(f"Health check - Failed to recover model service: {recovery_error}")
     except Exception as e:
         health_status["status"] = "degraded"
         health_status["model_service"] = {

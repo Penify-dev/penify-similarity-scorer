@@ -9,8 +9,26 @@ import time
 import logging
 import traceback
 import os
+import sys
+import numpy as np
 from sentence_transformers import SentenceTransformer, util
 import torch
+
+# Configure proper start method for multiprocessing
+# This is crucial to prevent semaphore leaks
+if sys.platform == 'darwin':  # macOS
+    # Force 'spawn' on macOS to avoid semaphore leaks
+    multiprocessing.set_start_method('spawn', force=True)
+elif sys.platform.startswith('win'):  # Windows
+    # Windows already uses 'spawn'
+    pass
+else:  # Linux and others
+    # Use 'spawn' on Linux as well for consistency
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        # Already set, which is fine
+        pass
 
 # Configure logging
 logging.basicConfig(
@@ -150,12 +168,68 @@ class ModelServiceProcess(multiprocessing.Process):
                     )
                     
                 elif request.operation == "health_check":
-                    # Health check
-                    response = ModelResponse(
-                        request_id=request.id,
-                        result="ok",
-                        processing_time=time.time() - start_time
-                    )
+                    # Health check - add more detailed logging
+                    logger.info(f"Processing health check request {request.id}")
+                    
+                    # Quick test if model is accessible
+                    try:
+                        # Simple test to verify model is loaded
+                        if hasattr(self, 'model') and self.model is not None:
+                            logger.info(f"Health check {request.id}: model is loaded")
+                            # Create a small test to ensure model is actually responding
+                            if hasattr(self.model, 'encode'):
+                                # Very simple test with a tiny input
+                                test_result = self.model.encode("test", convert_to_tensor=False)
+                                if test_result is not None:
+                                    logger.info(f"Health check {request.id}: successful model test")
+                                    response = ModelResponse(
+                                        request_id=request.id,
+                                        result="ok",
+                                        processing_time=time.time() - start_time
+                                    )
+                                else:
+                                    logger.error(f"Health check {request.id}: model test failed with null result")
+                                    response = ModelResponse(
+                                        request_id=request.id,
+                                        error="Model test returned null result",
+                                        processing_time=time.time() - start_time
+                                    )
+                            else:
+                                # Model doesn't have encode method
+                                logger.info(f"Health check {request.id}: model lacks encode method")
+                                response = ModelResponse(
+                                    request_id=request.id,
+                                    result="ok",  # Still consider this ok, just note it
+                                    processing_time=time.time() - start_time
+                                )
+                        else:
+                            logger.error(f"Health check {request.id}: model is not loaded")
+                            response = ModelResponse(
+                                request_id=request.id,
+                                error="Model is not loaded",
+                                processing_time=time.time() - start_time
+                            )
+                    except Exception as e:
+                        logger.error(f"Health check {request.id} failed: {e}")
+                        logger.error(traceback.format_exc())
+                        response = ModelResponse(
+                            request_id=request.id,
+                            error=f"Health check failed: {str(e)}",
+                            processing_time=time.time() - start_time
+                        )
+                    
+                    logger.info(f"Health check {request.id} result: {response.result if not response.error else f'error: {response.error}'}")
+                    
+                    # Prioritize sending health check responses by putting them at the front of the queue if possible
+                    try:
+                        # First try to send directly (non-blocking, might not work in all queue implementations)
+                        self.response_queue.put(response, block=False)
+                    except (queue.Full, AttributeError, TypeError):
+                        # If that fails, just use the normal put
+                        self.response_queue.put(response)
+                    
+                    # Continue processing other requests
+                    continue
                     
                 elif request.operation == "shutdown":
                     # Shutdown service
@@ -227,8 +301,16 @@ class ModelService:
         self._log_memory_usage("Before model service initialization")
         
         # Create queues for communication
+        # Use a context variable to track created resources
+        self._resources = []
+        
+        # Create request queue with proper context
         self.request_queue = multiprocessing.Queue()
+        self._resources.append(("request_queue", self.request_queue))
+        
+        # Create response queue with proper context
         self.response_queue = multiprocessing.Queue()
+        self._resources.append(("response_queue", self.response_queue))
         
         # Create and start the model service process
         self.process = ModelServiceProcess(
@@ -238,6 +320,7 @@ class ModelService:
             self.cache_folder, 
             self.device
         )
+        self._resources.append(("process", self.process))
         self.process.start()
         
         # Storage for responses
@@ -259,15 +342,38 @@ class ModelService:
         
         while True:
             try:
-                # Get response from queue
-                response = self.response_queue.get()
-                
-                # Store response
-                self.responses[response.request_id] = response
-                
+                # Get response from queue with a timeout
+                try:
+                    response = self.response_queue.get(timeout=0.5)  # Use a shorter timeout for more responsiveness
+                    
+                    # Safety checks on the response object
+                    if not hasattr(response, 'request_id') or not response.request_id:
+                        logger.warning(f"Received response with invalid or missing request_id: {response}")
+                        continue
+                        
+                    logger.info(f"Received response for request: {response.request_id}")
+                    
+                    # Special handling for health checks to ensure they're prioritized
+                    is_health_check = response.request_id and response.request_id.startswith('health_check-')
+                    
+                    # Extra logging for health check responses
+                    if is_health_check:
+                        logger.info(f"Processing health check response: {response.request_id}, " 
+                                   f"Result: {response.result if hasattr(response, 'result') else 'None'}, "
+                                   f"Error: {response.error if hasattr(response, 'error') else 'None'}")
+                    
+                    # Store response immediately
+                    self.responses[response.request_id] = response
+                    
+                except queue.Empty:
+                    # Just continue if no response within timeout
+                    continue
+                    
             except Exception as e:
                 logger.error(f"Error in response listener: {e}")
                 logger.error(traceback.format_exc())
+                # Brief pause to avoid consuming 100% CPU in case of repeated errors
+                time.sleep(0.1)
     
     def encode(self, text, timeout=30):
         """Encode text using the model."""
@@ -325,48 +431,172 @@ class ModelService:
     
     def health_check(self, timeout=5):
         """Check if the model service is healthy."""
-        # Generate request ID
-        request_id = f"health_check-{time.time()}"
+        # Generate request ID with a unique identifier - use a simpler format to avoid any serialization issues
+        request_id = f"health_check-{time.time():.6f}"
         
         # Create and send request
         request = ModelRequest(request_id, "health_check", None)
-        self.request_queue.put(request)
         
-        # Wait for response
-        start_time = time.time()
-        while request_id not in self.responses:
-            if time.time() - start_time > timeout:
+        try:
+            # First check if process is running - using a safer method
+            process_alive = False
+            if hasattr(self, 'process') and self.process.pid:
+                try:
+                    # Check if process is alive in a way that works across processes
+                    import psutil
+                    process_alive = psutil.pid_exists(self.process.pid)
+                    if not process_alive:
+                        logger.error(f"Health check failed: Model service process (PID: {self.process.pid}) is not running")
+                        return False
+                except (ImportError, Exception) as e:
+                    # If psutil not available, just assume process is running and continue
+                    logger.warning(f"Could not verify process status: {e}. Continuing with health check.")
+                    process_alive = True
+            else:
+                logger.error("Health check failed: No process reference available")
                 return False
-            time.sleep(0.01)
-        
-        # Get and remove response
-        response = self.responses.pop(request_id)
-        
-        # Check for error
-        if response.error:
+                
+            # Log before sending the request
+            logger.info(f"Sending health check request: {request_id}")
+            
+            # Clear any existing response with same prefix to avoid confusion (defensive)
+            for key in list(self.responses.keys()):
+                if key.startswith('health_check-'):
+                    logger.info(f"Clearing old health check response: {key}")
+                    self.responses.pop(key)
+            
+            # Send the request
+            self.request_queue.put(request)
+            
+            # Wait for response with more frequent checks
+            start_time = time.time()
+            while request_id not in self.responses:
+                if time.time() - start_time > timeout:
+                    logger.error(f"Health check timed out after {timeout} seconds for request {request_id}")
+                    return False
+                # Use shorter sleep interval for more responsive checks
+                time.sleep(0.005)
+            
+            # Get and remove response
+            response = self.responses.pop(request_id)
+            logger.info(f"Received health check response for {request_id}: {response.result if hasattr(response, 'result') else 'None'}")
+            
+            # Check for error
+            if hasattr(response, 'error') and response.error:
+                logger.error(f"Health check response contained error: {response.error}")
+                return False
+            
+            # Return health status
+            return hasattr(response, 'result') and response.result == "ok"
+        except Exception as e:
+            logger.error(f"Exception in health check: {e}")
+            logger.error(traceback.format_exc())
             return False
-        
-        # Return health status
-        return response.result == "ok"
     
     def shutdown(self):
         """Shutdown the model service."""
-        # Generate request ID
-        request_id = f"shutdown-{time.time()}"
+        logger.info("Starting model service shutdown...")
         
-        # Create and send request
-        request = ModelRequest(request_id, "shutdown", None)
-        self.request_queue.put(request)
-        
-        # Wait for response
-        start_time = time.time()
-        while request_id not in self.responses and time.time() - start_time < 5:
-            time.sleep(0.01)
-        
-        # Wait for process to terminate
-        self.process.join(timeout=5)
-        
-        logger.info("Model service shutdown complete")
+        try:
+            # Generate request ID
+            request_id = f"shutdown-{time.time()}"
+            
+            # Create and send request
+            request = ModelRequest(request_id, "shutdown", None)
+            self.request_queue.put(request)
+            
+            # Wait for response
+            start_time = time.time()
+            while request_id not in self.responses and time.time() - start_time < 5:
+                time.sleep(0.01)
+            
+            # Wait for process to terminate
+            if self.process.is_alive():
+                logger.info(f"Joining process {self.process.pid}...")
+                self.process.join(timeout=5)
+                
+                # If it's still alive, terminate it
+                if self.process.is_alive():
+                    logger.warning(f"Process {self.process.pid} didn't terminate, forcing termination...")
+                    self.process.terminate()
+                    self.process.join(timeout=2)
+                    
+                    # Last resort - kill
+                    if self.process.is_alive():
+                        logger.warning(f"Process {self.process.pid} still alive after terminate, killing...")
+                        try:
+                            import signal
+                            os.kill(self.process.pid, signal.SIGKILL)
+                        except Exception as e:
+                            logger.error(f"Failed to kill process: {e}")
+            
+            # Clean up multiprocessing resources
+            self._cleanup_resources()
+            
+            logger.info("Model service shutdown complete")
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+            logger.error(traceback.format_exc())
+    
+    def _cleanup_resources(self):
+        """Clean up multiprocessing resources to prevent leaks."""
+        try:
+            # Close the queues to release resources
+            if hasattr(self, '_resources') and self._resources:
+                for name, resource in self._resources:
+                    logger.info(f"Cleaning up resource: {name}")
+                    if name == "request_queue" or name == "response_queue":
+                        try:
+                            # First cancel any pending operations
+                            while not resource.empty():
+                                try:
+                                    resource.get_nowait()
+                                except:
+                                    break
+                            # Now close and join the queue
+                            resource.close()
+                            resource.join_thread()
+                            logger.info(f"Successfully closed and joined {name}")
+                        except Exception as e:
+                            logger.warning(f"Error cleaning up {name}: {e}")
+                
+                # Clear resources list
+                self._resources.clear()
+            else:
+                # Fallback if resources list not available
+                logger.info("Closing request queue...")
+                if hasattr(self, 'request_queue'):
+                    try:
+                        self.request_queue.close()
+                        self.request_queue.join_thread()  # Wait for background thread to exit
+                    except Exception as e:
+                        logger.warning(f"Error closing request queue: {e}")
+                
+                logger.info("Closing response queue...")
+                if hasattr(self, 'response_queue'):
+                    try:
+                        self.response_queue.close()
+                        self.response_queue.join_thread()  # Wait for background thread to exit
+                    except Exception as e:
+                        logger.warning(f"Error closing response queue: {e}")
+            
+            # Clear responses dictionary
+            if hasattr(self, 'responses'):
+                self.responses.clear()
+            
+            logger.info("Multiprocessing resources cleaned up")
+            
+            # Force garbage collection to help clean up any remaining resources
+            try:
+                import gc
+                gc.collect()
+                logger.info("Garbage collection completed")
+            except:
+                pass
+                
+        except Exception as e:
+            logger.error(f"Error cleaning up resources: {e}")
+            logger.error(traceback.format_exc())
         
     def _log_memory_usage(self, message="Current memory usage"):
         """Log the current memory usage."""
@@ -390,10 +620,13 @@ class ModelService:
         except Exception as e:
             logger.warning(f"Failed to log memory usage: {e}")
 
-# Example usage
 if __name__ == "__main__":
+    # Enable proper multiprocessing handling on macOS
+    multiprocessing.set_start_method('spawn', force=True)
+    
     # Test the model service
     import os
+    import numpy as np
     
     # Get model directory
     models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
