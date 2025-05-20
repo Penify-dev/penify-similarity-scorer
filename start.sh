@@ -1,25 +1,24 @@
 #!/bin/bash
+# Simplified startup script for the similarity-scorer service
 
-# Get the directory of this script
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$DIR"
-
-# First, check if an old server is running and terminate it
-./force_terminate.sh
-
-# Check if we need to install dependencies first
-if [[ "$1" == "--install" ]]; then
-    echo "Installing dependencies..."
-    pip install -r requirements.txt
-    shift
+# Stop any existing processes first
+if [ -f "terminate.sh" ]; then
+    echo "Stopping any existing similarity-scorer processes..."
+    ./terminate.sh
 fi
 
-# Set environment variables
-export PYTHONPATH=$DIR
-export MODEL_NAME=${MODEL_NAME:-"all-mpnet-base-v2"}
+# Set up environment variables
+export MODEL_NAME="all-mpnet-base-v2"  # Model to use
+export PYTHONPATH=$PWD
+export MODEL_APP="model_service:app"
+export MAIN_APP="main:app"
 
-# Configure Gunicorn to use /tmp instead of /dev/shm on macOS
-export GUNICORN_CMD_ARGS="--worker-tmp-dir /tmp --max-requests 0"
+# Ensure the models directory exists
+mkdir -p models
 
-# Run with gunicorn in production mode
-exec gunicorn main:app -c gunicorn_conf.py "$@"
+# Start the application using uvicorn directly - simpler and more reliable for FastAPI
+echo "Starting similarity-scorer application..."
+uvicorn main:app --host 0.0.0.0 --port 16000 --workers 2
+
+echo "Application started on http://localhost:16000"
+echo "API documentation available at http://localhost:16000/docs"

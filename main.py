@@ -1,10 +1,8 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from sentence_transformers import SentenceTransformer, util
 import torch
 import os
-import pathlib
 import platform
 import logging
 import time
@@ -13,7 +11,7 @@ import sys
 from datetime import datetime
 import atexit
 
-# Import model service
+# Import simplified model service
 from model_service import ModelService
 
 # Configure logging
@@ -64,11 +62,10 @@ else:
 model_name = os.environ.get("MODEL_NAME", "all-mpnet-base-v2")
 logger.info(f"Loading model: {model_name} from cache directory: {models_dir}")
 
-# Initialize the model service instead of loading the model directly
-# This creates a single shared model across all workers
+# Initialize the model service
 start_time = time.time()
 try:
-    # Get the model service singleton
+    # Get the model service singleton - only creates one model instance
     model_service = ModelService.get_instance(model_name, models_dir, device)
     load_time = time.time() - start_time
     logger.info(f"Model service initialized in {load_time:.2f} seconds")
@@ -77,7 +74,6 @@ try:
     def shutdown_model_service():
         logger.info("Shutting down model service")
         try:
-            # Make sure to properly close and clean up resources
             model_service.shutdown()
             logger.info("Model service shutdown completed successfully")
         except Exception as e:
@@ -94,14 +90,10 @@ except Exception as e:
 async def lifespan(app: FastAPI):
     # Startup: verify model is properly loaded
     logger.info("Application startup - Verifying model service is properly loaded...")
-    logger.info(f"Worker PID: {os.getpid()}")
     try:
-        s1 = "Hello world"
-        s2 = "Hi there"
-        
         # Check model service health
         health_check_start = time.time()
-        is_healthy = model_service.health_check(timeout=3)  # Reduced timeout from default
+        is_healthy = model_service.health_check()
         health_check_time = time.time() - health_check_start
         
         if not is_healthy:
@@ -112,6 +104,8 @@ async def lifespan(app: FastAPI):
             logger.info(f"Model service health check passed in {health_check_time:.4f} seconds")
             
             # Test similarity calculation
+            s1 = "Hello world"
+            s2 = "Hi there"
             sim_start = time.time()
             try:
                 similarity = model_service.calculate_similarity(s1, s2)
@@ -143,20 +137,6 @@ async def lifespan(app: FastAPI):
     
     # Shutdown logic
     logger.info("Application shutdown initiated")
-    
-    # Log memory usage before shutdown
-    try:
-        import psutil
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
-        logger.info(f"Final memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
-        
-        # Log runtime statistics
-        uptime = time.time() - process.create_time()
-        logger.info(f"Application uptime: {uptime:.2f} seconds ({uptime/60:.2f} minutes)")
-    except:
-        logger.info("Could not log final memory usage")
-        
     logger.info("Application shutdown complete")
 
 # FastAPI app
@@ -180,12 +160,10 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
-logger.info("CORS middleware configured")
 
 # Add Gzip compression for responses
 from fastapi.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)  # Only compress responses larger than 1KB
-logger.info("GZip middleware configured")
 
 # Request logging middleware
 @app.middleware("http")
@@ -220,12 +198,11 @@ async def health_check():
     # Check model service status
     try:
         logger.info("Health check - Testing model service")
-        # Set a timeout for the health check
         health_check_start = time.time()
-        model_service_healthy = model_service.health_check(timeout=30)  # Reduced from default 5
+        model_service_healthy = model_service.health_check()
         health_check_time = time.time() - health_check_start
         
-        logger.info(f"Health check - Model service health check took {health_check_time:.4f}s, result: {model_service_healthy}")
+        logger.info(f"Health check - Model service: {model_service_healthy}, time: {health_check_time:.4f}s")
         
         if model_service_healthy:
             health_status["model_service"] = {
@@ -241,26 +218,6 @@ async def health_check():
                 "response_time": health_check_time
             }
             logger.error("Health check - Model service health check failed")
-            
-            # Try to restart the model service if health check failed
-            try:
-                # This is a basic approach - in production, you might want a more sophisticated
-                # recovery mechanism or rely on the process supervisor
-                logger.info("Health check - Attempting to verify model service process is running")
-                
-                # At least log additional info that might help diagnose the issue
-                try:
-                    import psutil
-                    if hasattr(model_service, 'process') and model_service.process.pid:
-                        model_process = psutil.Process(model_service.process.pid)
-                        if model_process.is_running():
-                            logger.info(f"Health check - Model service process {model_service.process.pid} is running")
-                        else:
-                            logger.error(f"Health check - Model service process {model_service.process.pid} is NOT running")
-                except:
-                    logger.error("Health check - Could not check model service process status")
-            except Exception as recovery_error:
-                logger.error(f"Health check - Failed to recover model service: {recovery_error}")
     except Exception as e:
         health_status["status"] = "degraded"
         health_status["model_service"] = {
@@ -303,80 +260,6 @@ async def health_check():
     logger.info(f"Health check result: {health_status['status']}")
     return health_status
 
-# Route for system info
-@app.get("/system-info")
-async def system_info():
-    """Get information about the system and available devices."""
-    logger.info("System info endpoint called")
-    
-    # Try to get additional system info
-    memory_info = {}
-    try:
-        import psutil
-        process = psutil.Process(os.getpid())
-        mem = process.memory_info()
-        memory_info = {
-            "rss_mb": mem.rss / 1024 / 1024,
-            "vms_mb": mem.vms / 1024 / 1024,
-            "percent": process.memory_percent(),
-            "system_total_mb": psutil.virtual_memory().total / 1024 / 1024,
-            "system_available_mb": psutil.virtual_memory().available / 1024 / 1024,
-            "system_percent": psutil.virtual_memory().percent
-        }
-    except ImportError:
-        logger.info("psutil not available, memory info limited")
-        memory_info = {"error": "psutil not installed"}
-    
-    # Get uptime
-    try:
-        import time
-        uptime = time.time() - process.create_time()
-        uptime_info = {
-            "seconds": uptime,
-            "minutes": uptime / 60,
-            "hours": uptime / 3600,
-        }
-    except:
-        uptime_info = {"error": "Could not determine uptime"}
-    
-    info = {
-        "timestamp": datetime.now().isoformat(),
-        "platform": platform.platform(),
-        "processor": platform.processor(),
-        "python_version": platform.python_version(),
-        "python_implementation": platform.python_implementation(),
-        "pytorch_version": torch.__version__,
-        "device_info": {
-            "cpu_available": True,
-            "cpu_count": os.cpu_count(),
-            "cuda_available": torch.cuda.is_available(),
-            "mps_available": torch.backends.mps.is_available() if hasattr(torch.backends, "mps") else False,
-            "current_device": str(device) if device else "cpu"
-        },
-        "model_service": {
-            "name": model_name,
-            "cache_dir": models_dir,
-            "is_healthy": model_service.health_check()
-        },
-        "memory": memory_info,
-        "uptime": uptime_info
-    }
-    
-    # Add GPU info if CUDA is available
-    if torch.cuda.is_available():
-        info["device_info"]["cuda_device_count"] = torch.cuda.device_count()
-        info["device_info"]["cuda_device_name"] = torch.cuda.get_device_name(0)
-        
-        # Try to get GPU memory info
-        try:
-            info["device_info"]["cuda_memory_allocated_mb"] = torch.cuda.memory_allocated() / 1024 / 1024
-            info["device_info"]["cuda_memory_reserved_mb"] = torch.cuda.memory_reserved() / 1024 / 1024
-        except:
-            logger.info("Failed to get CUDA memory stats")
-    
-    logger.info(f"Returning system info with {len(info)} top-level keys")
-    return info
-
 # Request body structure
 class CompareRequest(BaseModel):
     sentence1: str
@@ -390,31 +273,21 @@ async def compare_sentences(data: CompareRequest):
     logger.info(f"Sentence 1 ({len(data.sentence1)} chars): {data.sentence1[:50]}...")
     logger.info(f"Sentence 2 ({len(data.sentence2)} chars): {data.sentence2[:50]}...")
     
-    s1 = data.sentence1
-    s2 = data.sentence2
-    
-    # Performance metrics
-    processing_metrics = {}
-
-    # Calculate similarity using the model service
+    # Calculate similarity
     sim_start = time.time()
     try:
-        similarity = model_service.calculate_similarity(s1, s2)
+        similarity = model_service.calculate_similarity(data.sentence1, data.sentence2)
         sim_time = time.time() - sim_start
-        processing_metrics["similarity_calculation_time"] = sim_time
         logger.info(f"[ID: {request_id}] Calculated similarity ({similarity:.4f}) in {sim_time:.4f}s")
     except Exception as e:
         logger.error(f"[ID: {request_id}] Similarity calculation failed: {str(e)}")
         raise
     
-    # Log detailed performance metrics
-    logger.info(f"[ID: {request_id}] Performance metrics: {json.dumps(processing_metrics)}")
-    
     result = {
-        "sentence1": s1,
-        "sentence2": s2,
+        "sentence1": data.sentence1,
+        "sentence2": data.sentence2,
         "semantic_similarity": round(similarity, 4),
-        "processing_time_seconds": processing_metrics["similarity_calculation_time"]
+        "processing_time_seconds": sim_time
     }
     
     logger.info(f"[ID: {request_id}] Request completed successfully")
