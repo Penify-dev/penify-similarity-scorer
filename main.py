@@ -54,7 +54,7 @@ app = FastAPI(
 # Route for system info
 @app.get("/system-info")
 async def system_info():
-    """Get information about the system and available devices."""
+    """Retrieves information about the system and available devices."""
     info = {
         "platform": platform.platform(),
         "python_version": platform.python_version(),
@@ -87,6 +87,7 @@ class CompareRequest(BaseModel):
 # Route to compare sentences
 @app.post("/compare")
 async def compare_sentences(data: CompareRequest):
+    """Compares two sentences and returns their semantic similarity."""
     s1 = data.sentence1
     s2 = data.sentence2
 
