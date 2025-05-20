@@ -19,7 +19,7 @@ mkdir -p models
 # Start the application using uvicorn with a single process and async workers
 # This prevents multiple instances of the model being loaded
 echo "Starting similarity-scorer application..."
-uvicorn main:app --host 0.0.0.0 --port 16000 --workers 1 --loop uvloop --http httptools
+uvicorn main:app --host 0.0.0.0 --port 16000 --workers 1 --loop uvloop --http httptools &
 
 echo "Application started on http://localhost:16000"
 echo "API documentation available at http://localhost:16000/docs"
