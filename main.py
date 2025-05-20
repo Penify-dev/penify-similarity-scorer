@@ -83,6 +83,7 @@ try:
     
     # Register shutdown function to clean up the model service
     def shutdown_model_service():
+        """Shuts down the model and equivalence model services."""
         logger.info("Shutting down model services")
         try:
             model_service.shutdown()
@@ -101,6 +102,20 @@ except Exception as e:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: verify model is properly loaded
+    """Manages application startup and shutdown, including model health checks and
+    verification.
+    
+    This context manager performs several tasks during the application's lifecycle:
+    1. Verifies the health of the similarity and equivalence model services. 2.
+    Tests the functionality of these models by performing similarity calculations
+    and text classification. 3. Logs any errors or warnings encountered during
+    these checks. 4. Optionally logs memory usage if the `psutil` library is
+    available. 5. Yields control back to FastAPI for normal operation. 6. Handles
+    application shutdown logging.
+    
+    Args:
+        app (FastAPI): The FastAPI application instance.
+    """
     logger.info("Application startup - Verifying model services are properly loaded...")
     try:
         # Check similarity model service health
@@ -223,7 +238,14 @@ async def log_requests(request: Request, call_next):
 # Add a health check endpoint
 @app.get("/health")
 async def health_check():
-    """Health check endpoint with detailed metrics."""
+    """Endpoint to perform a comprehensive health check of the application.
+    
+    This function checks the overall health status of the application by verifying
+    the health of the similarity model service, equivalence model service, and
+    monitoring memory and CPU usage. It logs detailed information about each check
+    and updates the health status accordingly. If any service fails its health
+    check, the overall status is marked as degraded or warning.
+    """
     logger.info("Health check endpoint called")
     
     health_status = {
@@ -369,6 +391,7 @@ class EquivalenceRequest(BaseModel):
 # Route to check semantic equivalence
 @app.post("/classify-equivalence")
 async def classify_equivalence(data: EquivalenceRequest):
+    """Classify semantic equivalence between premise and hypothesis."""
     request_id = f"req-{int(time.time() * 1000)}"
     logger.info(f"Equivalence endpoint called [ID: {request_id}]")
     logger.info(f"Premise ({len(data.premise)} chars): {data.premise[:50]}...")
