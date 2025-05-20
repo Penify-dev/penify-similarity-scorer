@@ -112,6 +112,7 @@ logger.info("GZip middleware configured")
 # Request logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
+    """Logs request start and end times along with status code."""
     request_id = f"req-{int(time.time() * 1000)}"
     logger.info(f"Request started [ID: {request_id}] - {request.method} {request.url.path}")
     
@@ -130,7 +131,19 @@ async def log_requests(request: Request, call_next):
 # Startup event to verify model is properly loaded
 @app.on_event("startup")
 async def startup_event():
-    """Verify model is properly loaded on startup."""
+    """Handles the application startup event by verifying that the model is properly
+    loaded.
+    
+    This function performs several key steps: 1. Encodes test sentences using the
+    model and measures the encoding time. 2. Moves tensors to the MPS device if
+    running on macOS with GPU support, logging any errors encountered during this
+    process. 3. Computes the cosine similarity between the encoded sentences and
+    measures the computation time. 4. Logs the success of the model verification
+    along with relevant performance metrics such as encoding time, tensor movement
+    time, similarity computation time, and total verification time. 5. Logs
+    additional details about the model, including its embedding dimension and
+    memory usage if available.
+    """
     logger.info("Application startup - Verifying model is properly loaded...")
     try:
         s1 = "Hello world"
@@ -184,7 +197,8 @@ async def startup_event():
 # Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Log application shutdown and cleanup."""
+    """Log application shutdown and cleanup, including memory usage and runtime
+    statistics."""
     logger.info("Application shutdown initiated")
     
     # Log memory usage before shutdown
@@ -205,7 +219,13 @@ async def shutdown_event():
 # Add a health check endpoint
 @app.get("/health")
 async def health_check():
-    """Health check endpoint with detailed metrics."""
+    """Endpoint to provide a detailed health status report.
+    
+    This function checks various metrics including model status, memory usage, CPU
+    usage, and device type. It logs relevant information and returns a JSON
+    response containing the overall health status along with specific details about
+    each metric. If any check fails, it updates the overall status accordingly.
+    """
     logger.info("Health check endpoint called")
     
     health_status = {
@@ -271,7 +291,14 @@ async def health_check():
 # Route for system info
 @app.get("/system-info")
 async def system_info():
-    """Get information about the system and available devices."""
+    """Retrieve detailed system and device information.
+    
+    This endpoint gathers various pieces of information about the system, including
+    memory usage, uptime, platform details, Python environment, device availability
+    (CPU, GPU, MPS), model details, and more. It uses the `psutil` library to fetch
+    memory and process-related data, and the `torch` library to gather GPU-specific
+    information if available.
+    """
     logger.info("System info endpoint called")
     
     # Try to get additional system info
@@ -350,6 +377,17 @@ class CompareRequest(BaseModel):
 # Route to compare sentences
 @app.post("/compare")
 async def compare_sentences(data: CompareRequest):
+    """Compares two sentences and calculates their semantic similarity.
+    
+    This function receives a request with two sentences, encodes them using a pre-
+    trained model, and computes the cosine similarity between their embeddings. It
+    logs various performance metrics such as encoding time and device transfer time
+    if applicable. The result includes the original sentences, the calculated
+    semantic similarity, and the total processing time.
+    
+    Args:
+        data (CompareRequest): A request object containing two sentences to be compared.
+    """
     request_id = f"req-{int(time.time() * 1000)}"
     logger.info(f"Compare endpoint called [ID: {request_id}]")
     logger.info(f"Sentence 1 ({len(data.sentence1)} chars): {data.sentence1[:50]}...")
