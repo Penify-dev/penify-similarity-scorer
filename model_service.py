@@ -80,7 +80,7 @@ class ModelService:
             raise
     
     def encode(self, text):
-        """Encode text using the model."""
+        """Encode text using the model and log the encoding time."""
         try:
             start_time = time.time()
             embedding = self.model.encode(text, convert_to_tensor=True)
@@ -120,7 +120,14 @@ class ModelService:
             raise RuntimeError(f"Error calculating similarity: {e}")
     
     def health_check(self):
-        """Check if the model is healthy by running a simple test."""
+        """Check if the model is healthy by running a simple test.
+        
+        This function performs a series of checks to ensure that the model is  properly
+        loaded and functional. It verifies the existence of the model,  checks for the
+        presence of the 'encode' method, and attempts a simple  encoding operation. If
+        any of these checks fail, an error is logged,  and the function returns False.
+        Otherwise, it logs a success message  and returns True.
+        """
         try:
             logger.info("Running health check")
             
@@ -147,7 +154,7 @@ class ModelService:
             return False
     
     def shutdown(self):
-        """Clean up resources."""
+        """Clean up resources and shut down the model service."""
         logger.info("Shutting down model service")
         
         # Clear model reference to help with garbage collection

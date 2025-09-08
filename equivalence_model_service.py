@@ -79,7 +79,7 @@ class EquivalenceModelService:
             raise
     
     def health_check(self) -> bool:
-        """Check if the model is properly loaded and can perform inference."""
+        """Check if the model is initialized and can perform inference."""
         if not self.initialized:
             logger.error("Model not initialized")
             return False
@@ -102,16 +102,14 @@ class EquivalenceModelService:
         """Classify the semantic relationship between two texts.
         
         Args:
-            premise: The first text
-            hypothesis: The second text to compare with the premise
-            
+            premise: The first text.
+            hypothesis: The second text to compare with the premise.
+        
         Returns:
-            A dictionary containing:
-                - entailment_score: Probability that hypothesis follows from premise
-                - contradiction_score: Probability that hypothesis contradicts premise
-                - neutral_score: Probability that hypothesis is neutral to premise
-                - predicted_label: The predicted relationship
-                - is_equivalent: Boolean indicating if texts are semantically equivalent
+            A dictionary containing the scores for entailment, contradiction, and
+                neutrality,
+            the predicted relationship label, and a boolean indicating semantic
+                equivalence.
         """
         if not self.initialized:
             raise RuntimeError("Model not initialized. Cannot perform classification.")
@@ -163,7 +161,13 @@ class EquivalenceModelService:
             raise
     
     def shutdown(self):
-        """Clean up resources."""
+        """Shut down the model service and clean up resources.
+        
+        This function logs the shutdown process of the model service.  It checks if the
+        model is not None and, if the device type is  'cuda', it attempts to clear the
+        CUDA memory cache. Any errors  encountered during the shutdown process are
+        logged for debugging  purposes.
+        """
         try:
             logger.info("Shutting down model service")
             if self.model is not None:
