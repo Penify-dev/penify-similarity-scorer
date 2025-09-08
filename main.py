@@ -83,6 +83,7 @@ try:
     
     # Register shutdown function to clean up the model service
     def shutdown_model_service():
+        """Shut down the model services and log the process."""
         logger.info("Shutting down model services")
         try:
             model_service.shutdown()
@@ -101,6 +102,16 @@ except Exception as e:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: verify model is properly loaded
+    """FastAPI lifespan context manager for application startup and shutdown.
+    
+    This function manages the lifecycle of a FastAPI application by performing
+    health checks  on the model services during startup and logging relevant
+    information. It verifies the  functionality of both the similarity and
+    equivalence model services, handling any errors  gracefully to ensure the
+    application continues running with potentially limited functionality.
+    Additionally, it logs memory usage statistics if the `psutil` library is
+    available.
+    """
     logger.info("Application startup - Verifying model services are properly loaded...")
     try:
         # Check similarity model service health
@@ -205,6 +216,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)  # Only compress responses
 # Request logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
+    """Log incoming HTTP requests and their processing time."""
     request_id = f"req-{int(time.time() * 1000)}"
     logger.info(f"Request started [ID: {request_id}] - {request.method} {request.url.path}")
     
@@ -223,7 +235,14 @@ async def log_requests(request: Request, call_next):
 # Add a health check endpoint
 @app.get("/health")
 async def health_check():
-    """Health check endpoint with detailed metrics."""
+    """Health check endpoint that provides detailed metrics.
+    
+    This endpoint performs a health check on various services, including the
+    similarity and equivalence model services, and gathers system metrics such as
+    memory and CPU usage. It logs the status of each service and the overall health
+    status, returning a structured response that includes timestamps, version
+    information, and any warnings related to system performance.
+    """
     logger.info("Health check endpoint called")
     
     health_status = {
@@ -336,6 +355,7 @@ class CompareRequest(BaseModel):
 # Route to compare sentences
 @app.post("/compare")
 async def compare_sentences(data: CompareRequest):
+    """Compare two sentences and calculate their semantic similarity."""
     request_id = f"req-{int(time.time() * 1000)}"
     logger.info(f"Compare endpoint called [ID: {request_id}]")
     logger.info(f"Sentence 1 ({len(data.sentence1)} chars): {data.sentence1[:50]}...")
@@ -369,6 +389,7 @@ class EquivalenceRequest(BaseModel):
 # Route to check semantic equivalence
 @app.post("/classify-equivalence")
 async def classify_equivalence(data: EquivalenceRequest):
+    """Classify the semantic equivalence of a premise and hypothesis."""
     request_id = f"req-{int(time.time() * 1000)}"
     logger.info(f"Equivalence endpoint called [ID: {request_id}]")
     logger.info(f"Premise ({len(data.premise)} chars): {data.premise[:50]}...")
