@@ -26,7 +26,10 @@ class EquivalenceModelService:
     def get_instance(cls, model_name: str, cache_dir: str, device: torch.device) -> 'EquivalenceModelService':
         """Get or create the singleton instance of EquivalenceModelService."""
         if cls._instance is None:
+            logger.info(f"Creating new EquivalenceModelService instance with model: {model_name}")
             cls._instance = cls(model_name, cache_dir, device)
+        else:
+            logger.info("Reusing existing EquivalenceModelService instance")
         return cls._instance
     
     def __init__(self, model_name: str, cache_dir: str, device: torch.device):
@@ -37,6 +40,9 @@ class EquivalenceModelService:
             cache_dir: Directory to cache the model
             device: PyTorch device to run inference on (CPU, CUDA, MPS)
         """
+        if EquivalenceModelService._instance is not None:
+            raise RuntimeError("EquivalenceModelService is a singleton class. Use get_instance() instead.")
+            
         self.model_name = model_name
         self.cache_dir = cache_dir
         self.device = device
